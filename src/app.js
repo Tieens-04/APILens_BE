@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { corsOptions } = require('./config/cors');
 const authRoutes = require('./routes/auth.routes');
 const repoRoutes = require('./routes/repo.routes');
 const parserRoutes = require('./routes/parser.routes');
@@ -12,23 +13,7 @@ const app = express();
 
 // Middlewares
 app.use(helmet());
-app.use(cors({
-  origin: (origin, callback) => {
-    const allowedOrigins = [
-      process.env.CLIENT_URL,
-      process.env.FRONTEND_URL,
-      'http://localhost:3000',
-    ].filter(Boolean);
-
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-
-    callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-}));
+app.use(cors(corsOptions));
 app.use(rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   max: Number(process.env.RATE_LIMIT_MAX) || 100,
@@ -37,6 +22,15 @@ app.use(rateLimit({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    name: 'APILens Backend',
+    health: '/health',
+    apiBase: '/api/v1',
+  });
+});
 
 // Basic Health Check Route
 app.get('/health', (req, res) => {
