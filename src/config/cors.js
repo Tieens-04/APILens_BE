@@ -14,10 +14,10 @@ const getAllowedOrigins = () => {
   return [...new Set(origins)];
 };
 
-const isEnabled = (value) => ['1', 'true', 'yes'].includes(String(value || '').toLowerCase());
+const isDisabled = (value) => ['0', 'false', 'no'].includes(String(value || '').toLowerCase());
 
 const isAllowedVercelOrigin = (origin) => {
-  if (!isEnabled(process.env.ALLOW_VERCEL_ORIGINS)) {
+  if (isDisabled(process.env.ALLOW_VERCEL_ORIGINS)) {
     return false;
   }
 

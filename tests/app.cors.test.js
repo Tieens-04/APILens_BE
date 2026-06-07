@@ -43,4 +43,24 @@ describe('CORS configuration', () => {
 
     expect(callback).toHaveBeenCalledWith(null, true);
   });
+
+  it('allows Vercel origins by default for simpler deployments', () => {
+    delete process.env.ALLOW_VERCEL_ORIGINS;
+    const { corsOptions } = require('../src/config/cors');
+    const callback = jest.fn();
+
+    corsOptions.origin('https://restly-fe.vercel.app', callback);
+
+    expect(callback).toHaveBeenCalledWith(null, true);
+  });
+
+  it('can disable wildcard Vercel origins explicitly', () => {
+    process.env.ALLOW_VERCEL_ORIGINS = 'false';
+    const { corsOptions } = require('../src/config/cors');
+    const callback = jest.fn();
+
+    corsOptions.origin('https://restly-je5160pw-tieens-04s-projects.vercel.app', callback);
+
+    expect(callback.mock.calls[0][0]).toBeInstanceOf(Error);
+  });
 });
