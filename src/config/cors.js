@@ -14,6 +14,21 @@ const getAllowedOrigins = () => {
   return [...new Set(origins)];
 };
 
+const isEnabled = (value) => ['1', 'true', 'yes'].includes(String(value || '').toLowerCase());
+
+const isAllowedVercelOrigin = (origin) => {
+  if (!isEnabled(process.env.ALLOW_VERCEL_ORIGINS)) {
+    return false;
+  }
+
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:' && url.hostname.endsWith('.vercel.app');
+  } catch (_) {
+    return false;
+  }
+};
+
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) {
@@ -24,7 +39,7 @@ const corsOptions = {
     const normalizedOrigin = origin.replace(/\/$/, '');
     const allowedOrigins = getAllowedOrigins();
 
-    if (allowedOrigins.includes(normalizedOrigin)) {
+    if (allowedOrigins.includes(normalizedOrigin) || isAllowedVercelOrigin(normalizedOrigin)) {
       callback(null, true);
       return;
     }
@@ -37,4 +52,5 @@ const corsOptions = {
 module.exports = {
   corsOptions,
   getAllowedOrigins,
+  isAllowedVercelOrigin,
 };
