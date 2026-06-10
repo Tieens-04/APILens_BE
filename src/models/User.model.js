@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema(
     {
@@ -16,10 +15,6 @@ const userSchema = new mongoose.Schema(
             unique: true,
             index: true,
         },
-        password: {
-            type: String,
-            select: false,
-        },
         avatarUrl: {
             type: String,
             trim: true,
@@ -30,18 +25,6 @@ const userSchema = new mongoose.Schema(
             default: 'user',
         },
         providers: {
-            local: {
-                type: Boolean,
-                default: false,
-            },
-            google: {
-                id: {
-                    type: String,
-                    sparse: true,
-                    unique: true,
-                    index: true,
-                },
-            },
             github: {
                 id: {
                     type: String,
@@ -62,19 +45,6 @@ const userSchema = new mongoose.Schema(
     }
 );
 
-userSchema.pre('save', async function hashPassword() {
-    if (!this.isModified('password') || !this.password) {
-        return;
-    }
-
-    this.password = await bcrypt.hash(this.password, 12);
-    this.providers.local = true;
-});
-
-userSchema.methods.comparePassword = function comparePassword(candidatePassword) {
-    return bcrypt.compare(candidatePassword, this.password);
-};
-
 userSchema.methods.toAuthJSON = function toAuthJSON() {
     return {
         id: this._id,
@@ -83,8 +53,6 @@ userSchema.methods.toAuthJSON = function toAuthJSON() {
         avatarUrl: this.avatarUrl,
         role: this.role,
         providers: {
-            local: Boolean(this.providers?.local),
-            google: Boolean(this.providers?.google?.id),
             github: Boolean(this.providers?.github?.id),
         },
         createdAt: this.createdAt,
