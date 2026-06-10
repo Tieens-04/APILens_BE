@@ -3,6 +3,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { signAuthToken } = require('../utils/jwt');
 const { encryptToken } = require('../utils/tokenCrypto');
+const crypto = require('crypto');
 
 const buildOAuthRedirect = (provider, token) => {
     const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:3000';
@@ -42,7 +43,10 @@ const redirectToGithub = asyncHandler(async (req, res) => {
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', callbackUrl);
     url.searchParams.set('scope', 'read:user user:email repo');
+    url.searchParams.set('state', crypto.randomBytes(16).toString('hex'));
+    url.searchParams.set('prompt', 'select_account');
 
+    res.set('Cache-Control', 'no-store');
     res.redirect(url.toString());
 });
 
@@ -81,6 +85,7 @@ const githubCallback = asyncHandler(async (req, res) => {
         headers: {
             Accept: 'application/json',
             'Content-Type': 'application/json',
+            'User-Agent': 'APILens',
         },
         body: JSON.stringify({
             client_id: requireEnv('GITHUB_CLIENT_ID'),
@@ -94,6 +99,10 @@ const githubCallback = asyncHandler(async (req, res) => {
 
     if (!tokenResponse.ok || tokenPayload.error) {
         throw new ApiError(401, tokenPayload.error_description || 'GitHub OAuth failed', 'GITHUB_OAUTH_FAILED');
+    }
+
+    if (!tokenPayload.access_token) {
+        throw new ApiError(401, 'GitHub did not return an access token', 'GITHUB_OAUTH_FAILED');
     }
 
     const profileResponse = await fetch('https://api.github.com/user', {
