@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const { corsOptions } = require('./config/cors');
 const authRoutes = require('./routes/auth.routes');
@@ -13,6 +14,9 @@ const app = express();
 
 // Middlewares
 app.use(helmet());
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+}
 app.use(cors(corsOptions));
 app.use(rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
