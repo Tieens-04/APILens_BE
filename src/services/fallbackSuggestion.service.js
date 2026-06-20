@@ -29,13 +29,41 @@ const buildOverallFallbackSummary = (analysisInput) => {
     const smells = analysisInput.smells || [];
 
     if (smells.length === 0) {
-        return 'No API design smells were detected. Keep response shapes, versioning, and documentation consistent as the API grows.';
+        return [
+            '## Summary',
+            'No API design smells were detected in the selected file. Keep response shapes, versioning, and documentation consistent as the API grows.',
+            '',
+            '## Priority fixes',
+            '- No priority fixes are required right now.',
+            '',
+            '## Quick checklist',
+            '- Keep documenting success and error responses.',
+            '- Reuse the same URL naming style across new endpoints.',
+            '- Review response shapes when adding new resources.',
+        ].join('\n');
     }
 
     const criticalCount = smells.filter((smell) => smell.severity === 'Critical').length;
-    const topRules = [...new Set(smells.slice(0, 5).map((smell) => `${smell.ruleId} ${smell.smellName}`))].join(', ');
+    const topSmells = smells.slice(0, 3);
 
-    return `Focus first on ${criticalCount} critical issue(s), then address repeated consistency problems. Top findings: ${topRules}.`;
+    return [
+        '## Summary',
+        `Focus first on ${criticalCount} critical issue(s), then address repeated consistency problems.`,
+        `APILens found ${smells.length} issue(s) that can affect client integration and maintainability.`,
+        '',
+        '## Priority fixes',
+        ...topSmells.map((smell) => {
+            const endpoints = smell.endpoints?.length ? smell.endpoints.join(', ') : 'affected endpoint(s)';
+            const lines = smell.lineNumbers?.length ? ` line ${smell.lineNumbers.join(', ')}` : '';
+
+            return `- [${smell.severity}] ${smell.ruleId} ${smell.smellName}: ${endpoints}${lines}. ${smell.suggestion || buildFallbackSuggestion(smell)}`;
+        }),
+        '',
+        '## Quick checklist',
+        '- Fix Critical issues before Medium and Low issues.',
+        '- Update route names, status-code documentation, and version prefixes consistently.',
+        '- Re-run the analysis after changing the affected files.',
+    ].join('\n');
 };
 
 module.exports = {

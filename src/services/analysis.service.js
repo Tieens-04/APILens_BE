@@ -138,8 +138,20 @@ const deleteAnalysis = async (userId, analysisId) => {
     return analysis;
 };
 
+const rerunAnalysis = async (userId, analysisId) => {
+    const analysis = await getAnalysisById(userId, analysisId);
+
+    return runAnalysis(userId, {
+        repoFullName: analysis.repoFullName,
+        branch: analysis.branch,
+        filePath: analysis.filePath,
+        fileType: analysis.fileType,
+    });
+};
+
 module.exports = {
     runAnalysis,
+    rerunAnalysis,
     getAnalysisById,
     listUserAnalyses,
     deleteAnalysis,

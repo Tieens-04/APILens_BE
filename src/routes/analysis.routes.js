@@ -25,6 +25,17 @@ router.get('/me', analysisController.listMyAnalyses);
  */
 router.post('/vscode', analysisController.analyzeVSCodeContent);
 /**
+ * @apilens responses 201,400,401,403,404,422,429,500
+ * @apilens param id
+ */
+router.post('/:id/rerun', analysisController.rerunAnalysis);
+/**
+ * @apilens responses 200,400,401,404,500
+ * @apilens param id
+ * @apilens param format query
+ */
+router.get('/:id/export', analysisController.exportAnalysis);
+/**
  * @apilens responses 200,401,404,500
  * @apilens param id
  */

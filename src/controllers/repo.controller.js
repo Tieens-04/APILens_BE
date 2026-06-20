@@ -36,8 +36,15 @@ const getRepositoryTree = asyncHandler(async (req, res) => {
     res.status(200).json(tree);
 });
 
+const scanRepository = asyncHandler(async (req, res) => {
+    const { repoUrl, branch } = req.body;
+    const results = await githubService.scanRepository(req.user._id, repoUrl, { branch });
+    res.status(200).json(results);
+});
+
 module.exports = {
     listRepositories,
     listBranches,
     getRepositoryTree,
+    scanRepository,
 };

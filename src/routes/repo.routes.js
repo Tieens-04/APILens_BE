@@ -29,4 +29,10 @@ router.get('/:owner/:repo/branches', repoController.listBranches);
  */
 router.get('/:owner/:repo/tree', repoController.getRepositoryTree);
 
+/**
+ * @apilens responses 200,401,403,400,429,500
+ * @apilens body { repoUrl: "https://github.com/user/repo" }
+ */
+router.post('/scan', repoController.scanRepository);
+
 module.exports = router;
