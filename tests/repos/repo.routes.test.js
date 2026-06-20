@@ -1,23 +1,37 @@
 const request = require('supertest');
+
+jest.mock('../../src/middlewares/auth.middleware', () => ({
+    protect: (req, res, next) => {
+        const authHeader = req.headers.authorization || '';
+
+        if (!authHeader.startsWith('Bearer ')) {
+            res.status(401).json({
+                error: {
+                    code: 'UNAUTHORIZED',
+                    message: 'Authentication token is required',
+                    status: 401,
+                },
+            });
+            return;
+        }
+
+        req.user = {
+            _id: '507f1f77bcf86cd799439011',
+        };
+        next();
+    },
+}));
+
+jest.mock('../../src/services/github.service', () => ({
+    scanRepository: jest.fn(),
+}));
+
 const app = require('../../src/app');
-const User = require('../../src/models/User.model');
 const githubService = require('../../src/services/github.service');
-const db = require('../db-handler');
 
 describe('Repo Routes', () => {
-    let token;
-
-    beforeAll(async () => await db.connect());
-    afterEach(async () => await db.clearDatabase());
-    afterAll(async () => await db.closeDatabase());
-
-    beforeEach(async () => {
-        const user = await User.create({
-            name: 'Test User',
-            email: 'test@example.com',
-            password: 'password123',
-        });
-        token = user.getSignedJwtToken();
+    beforeEach(() => {
+        jest.clearAllMocks();
     });
 
     describe('POST /api/v1/repos/scan', () => {
@@ -31,7 +45,7 @@ describe('Repo Routes', () => {
         it('should return 400 if repoUrl is not provided', async () => {
             const res = await request(app)
                 .post('/api/v1/repos/scan')
-                .set('Authorization', `Bearer ${token}`)
+                .set('Authorization', 'Bearer test-token')
                 .send({});
             expect(res.statusCode).toEqual(400);
             expect(res.body).toHaveProperty('error');
@@ -47,14 +61,16 @@ describe('Repo Routes', () => {
 
             const res = await request(app)
                 .post('/api/v1/repos/scan')
-                .set('Authorization', `Bearer ${token}`)
+                .set('Authorization', 'Bearer test-token')
                 .send({ repoUrl: 'https://github.com/test/repo' });
 
             expect(res.statusCode).toEqual(200);
             expect(res.body).toEqual(mockScanResult);
-            
-            const user = await User.findOne({ email: 'test@example.com' });
-            expect(githubService.scanRepository).toHaveBeenCalledWith(user._id.toString(), 'https://github.com/test/repo');
+            expect(githubService.scanRepository).toHaveBeenCalledWith(
+                '507f1f77bcf86cd799439011',
+                'https://github.com/test/repo',
+                {}
+            );
         });
 
         it('should handle errors from githubService', async () => {
@@ -63,12 +79,10 @@ describe('Repo Routes', () => {
 
             const res = await request(app)
                 .post('/api/v1/repos/scan')
-                .set('Authorization', `Bearer ${token}`)
+                .set('Authorization', 'Bearer test-token')
                 .send({ repoUrl: 'https://github.com/test/repo' });
 
             expect(res.statusCode).toEqual(500);
         });
     });
-
-    afterAll(async () => await db.closeDatabase());
 });

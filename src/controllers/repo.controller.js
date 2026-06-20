@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
 const githubService = require('../services/github.service');
+const ApiError = require('../utils/ApiError');
 
 const listRepositories = asyncHandler(async (req, res) => {
     const page = Math.max(Number(req.query.page) || 1, 1);
@@ -38,6 +39,11 @@ const getRepositoryTree = asyncHandler(async (req, res) => {
 
 const scanRepository = asyncHandler(async (req, res) => {
     const { repoUrl, branch } = req.body;
+
+    if (!repoUrl) {
+        throw new ApiError(400, 'repoUrl is required', 'VALIDATION_ERROR');
+    }
+
     const results = await githubService.scanRepository(req.user._id, repoUrl, { branch });
     res.status(200).json(results);
 });
