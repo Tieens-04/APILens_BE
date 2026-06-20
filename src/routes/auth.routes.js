@@ -9,14 +9,6 @@ const router = express.Router();
  */
 
 /**
- * @apilens responses 201,400,409,500
- */
-router.post('/register', authController.register);
-/**
- * @apilens responses 200,400,401,500
- */
-router.post('/login', authController.login);
-/**
  * @apilens responses 200,401,500
  */
 router.get('/me', protect, authController.me);
@@ -24,15 +16,6 @@ router.get('/me', protect, authController.me);
  * @apilens responses 200,401,500
  */
 router.post('/logout', protect, authController.logout);
-
-/**
- * @apilens responses 302,500
- */
-router.get('/google', authController.redirectToGoogle);
-/**
- * @apilens responses 302,400,401,500
- */
-router.get('/google/callback', authController.googleCallback);
 
 /**
  * @apilens responses 302,500
