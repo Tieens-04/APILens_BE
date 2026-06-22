@@ -219,7 +219,7 @@ const detectYamlFileType = (content) => {
 };
 
 const detectExpressFileType = (content) => {
-    if (/\b(router|app)\s*\.\s*(get|post|put|patch|delete)\s*\(/i.test(content)) {
+    if (/\b(router|app|[A-Za-z0-9_]+Router)\s*\.\s*(get|post|put|patch|delete|route|use)\s*\(/i.test(content)) {
         return 'express';
     }
 
