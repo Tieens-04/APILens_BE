@@ -44,6 +44,7 @@ app.get('/health', (req, res) => {
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/repos', repoRoutes);
 app.use('/api/v1/parser', parserRoutes);
+app.use('/api/v1/analysis', analysisRoutes);
 app.use('/api/v1/analyses', analysisRoutes);
 
 app.use(notFound);

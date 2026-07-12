@@ -192,6 +192,11 @@ const listRepositories = async (userId) => {
         defaultBranch: repo.default_branch,
         htmlUrl: repo.html_url,
         updatedAt: repo.updated_at,
+        stargazers_count: repo.stargazers_count,
+        forks_count: repo.forks_count,
+        watchers_count: repo.watchers_count,
+        open_issues_count: repo.open_issues_count,
+        language: repo.language,
     }));
 };
 

@@ -8,6 +8,11 @@ const router = express.Router();
  * @apilens basePath /api/v1/analyses
  */
 
+/**
+ * @apilens responses 200,400,422,500
+ */
+router.post('/file', analysisController.analyzeFileContent);
+
 router.use(protect);
 
 /**

@@ -105,7 +105,7 @@ const getAnalysisById = async (userId, analysisId) => {
 };
 
 const listUserAnalyses = async (userId, options = {}) => {
-    const limit = Math.min(Number(options.limit) || 20, 50);
+    const limit = Math.min(Number(options.limit) || 20, 100);
     const page = Math.max(Number(options.page) || 1, 1);
     const query = {
         userId,
