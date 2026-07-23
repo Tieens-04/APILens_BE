@@ -379,4 +379,5 @@ module.exports = {
     fetchRepositoryFileContent,
     fetchUserRepositoryFileContent,
     scanRepository,
+    githubFetch,
 };

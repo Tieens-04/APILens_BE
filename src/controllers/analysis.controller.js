@@ -2,11 +2,15 @@ const asyncHandler = require('../utils/asyncHandler');
 const parserService = require('../services/parser.service');
 const analysisService = require('../services/analysis.service');
 const aiSuggestionService = require('../services/aiSuggestion.service');
+const githubService = require('../services/github.service');
+const aiFixService = require('../services/aiFix.service');
+const creditService = require('../services/credit.service');
 const ApiError = require('../utils/ApiError');
 const { runRuleEngine } = require('../rules');
 const PDFDocument = require('pdfkit');
 
 const createAnalysis = asyncHandler(async (req, res) => {
+    await creditService.checkAndDeductCredits(req.user._id, 'SCAN');
     const analysis = await analysisService.runAnalysis(req.user._id, req.body);
 
     res.status(201).json({
@@ -44,6 +48,7 @@ const deleteAnalysis = asyncHandler(async (req, res) => {
 });
 
 const rerunAnalysis = asyncHandler(async (req, res) => {
+    await creditService.checkAndDeductCredits(req.user._id, 'SCAN');
     const analysis = await analysisService.rerunAnalysis(req.user._id, req.params.id);
 
     res.status(201).json({
@@ -224,6 +229,164 @@ const analyzeVSCodeContent = asyncHandler(async (req, res) => {
     });
 });
 
+const generateFix = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { smellIndex } = req.body;
+
+    if (smellIndex === undefined) {
+        throw new ApiError(400, 'smellIndex is required', 'VALIDATION_ERROR');
+    }
+
+    await creditService.checkAndDeductCredits(req.user._id, 'AI_FIX');
+
+    const analysis = await analysisService.getAnalysisById(req.user._id, id);
+    if (!analysis) {
+        throw new ApiError(404, 'Analysis not found', 'NOT_FOUND');
+    }
+
+    const smell = analysis.smells[smellIndex];
+    if (!smell) {
+        throw new ApiError(404, 'Smell not found at specified index', 'NOT_FOUND');
+    }
+
+    const accessToken = await githubService.getGithubAccessToken(req.user._id);
+    const { owner, repo } = githubService.parseGithubRepoUrl(analysis.repoFullName);
+
+    // Fetch the original file content from GitHub
+    const originalContent = await githubService.fetchRepositoryFileContent(
+        accessToken,
+        owner,
+        repo,
+        analysis.filePath,
+        analysis.branch
+    );
+
+    // Generate the AI code fix
+    const fixedContent = await aiFixService.generateFix({
+        content: originalContent,
+        fileType: analysis.fileType,
+        filePath: analysis.filePath,
+        smell,
+    });
+
+    await creditService.recordAiUsage(req.user._id, 1850);
+
+    res.status(200).json({
+        success: true,
+        originalContent,
+        fixedContent,
+        filePath: analysis.filePath,
+        smellIndex,
+    });
+});
+
+const createPullRequest = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { smellIndex, fixedContent } = req.body;
+
+    if (smellIndex === undefined || !fixedContent) {
+        throw new ApiError(400, 'smellIndex and fixedContent are required', 'VALIDATION_ERROR');
+    }
+
+    await creditService.checkAndDeductCredits(req.user._id, 'CREATE_PR');
+
+    const analysis = await analysisService.getAnalysisById(req.user._id, id);
+    if (!analysis) {
+        throw new ApiError(404, 'Analysis not found', 'NOT_FOUND');
+    }
+
+    const smell = analysis.smells[smellIndex];
+    if (!smell) {
+        throw new ApiError(404, 'Smell not found at specified index', 'NOT_FOUND');
+    }
+
+    const accessToken = await githubService.getGithubAccessToken(req.user._id);
+    const { owner, repo } = githubService.parseGithubRepoUrl(analysis.repoFullName);
+
+    // 1. Get base branch SHA
+    const baseBranchName = analysis.branch || 'main';
+    const refPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/ref/heads/${encodeURIComponent(baseBranchName)}`;
+    const baseRef = await githubService.githubFetch(accessToken, refPath);
+    const baseSha = baseRef.payload?.object?.sha;
+
+    if (!baseSha) {
+        throw new ApiError(500, 'Failed to retrieve branch reference from GitHub', 'GITHUB_API_ERROR');
+    }
+
+    // 2. Create a new branch pointing to baseSha
+    const newBranchName = `apilens-fix-${smell.ruleId || 'smell'}-${Date.now()}`;
+    const createBranchPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/refs`;
+    await githubService.githubFetch(accessToken, createBranchPath, {
+        method: 'POST',
+        body: JSON.stringify({
+            ref: `refs/heads/${newBranchName}`,
+            sha: baseSha,
+        }),
+    });
+
+    // 3. Get file SHA from the new branch to prepare for commit
+    const encodedFilePath = analysis.filePath.split('/').map(encodeURIComponent).join('/');
+    const contentPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedFilePath}?ref=${newBranchName}`;
+    const fileContentResult = await githubService.githubFetch(accessToken, contentPath);
+    const fileSha = fileContentResult.payload?.sha;
+
+    if (!fileSha) {
+        throw new ApiError(500, 'Failed to retrieve file reference from GitHub', 'GITHUB_API_ERROR');
+    }
+
+    // 4. Commit updated content (PUT /repos/:owner/:repo/contents/:path)
+    const commitMessage = `fix(api): fix REST API design smell (${smell.ruleId} - ${smell.smellName})`;
+    const updateContentPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedFilePath}`;
+    await githubService.githubFetch(accessToken, updateContentPath, {
+        method: 'PUT',
+        body: JSON.stringify({
+            message: commitMessage,
+            content: Buffer.from(fixedContent).toString('base64'),
+            sha: fileSha,
+            branch: newBranchName,
+        }),
+    });
+
+    // 5. Create Pull Request (POST /repos/:owner/:repo/pulls)
+    const prTitle = `fix(api): fix REST API design smell: ${smell.smellName}`;
+    const prBody = [
+        '### APILens Auto-Remediation',
+        '',
+        `This Pull Request was generated by APILens to fix a REST API design smell in **${analysis.filePath}**.`,
+        '',
+        `- **Rule**: [${smell.ruleId}] ${smell.smellName}`,
+        `- **Description**: ${smell.description}`,
+        `- **Suggestion**: ${smell.suggestion}`,
+        `- **Affected Endpoints**: \`${smell.endpoints?.join('`, `') || 'N/A'}\``,
+        `- **Severity**: **${smell.severity}**`,
+        '',
+        'Please review the changes and merge if they meet your quality standards.',
+    ].join('\n');
+
+    const prPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`;
+    const prResult = await githubService.githubFetch(accessToken, prPath, {
+        method: 'POST',
+        body: JSON.stringify({
+            title: prTitle,
+            body: prBody,
+            head: newBranchName,
+            base: baseBranchName,
+        }),
+    });
+
+    const pullRequestUrl = prResult.payload?.html_url;
+
+    if (!pullRequestUrl) {
+        throw new ApiError(500, 'Failed to create Pull Request on GitHub', 'GITHUB_API_ERROR');
+    }
+
+    res.status(200).json({
+        success: true,
+        pullRequestUrl,
+        branch: newBranchName,
+    });
+});
+
 module.exports = {
     createAnalysis,
     getAnalysis,
@@ -232,4 +395,6 @@ module.exports = {
     rerunAnalysis,
     exportAnalysis,
     analyzeVSCodeContent,
+    generateFix,
+    createPullRequest,
 };

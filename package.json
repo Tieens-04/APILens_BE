@@ -1,5 +1,5 @@
 {
-  "name": "restly_be",
+  "name": "apilens-be",
   "version": "1.0.0",
   "description": "",
   "main": "src/server.js",
