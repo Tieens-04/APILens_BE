@@ -51,22 +51,26 @@ const redirectToGithub = asyncHandler(async (req, res) => {
 });
 
 const fetchGithubPrimaryEmail = async (accessToken) => {
-    const response = await fetch('https://api.github.com/user/emails', {
-        headers: {
-            Authorization: `Bearer ${accessToken}`,
-            Accept: 'application/vnd.github+json',
-            'User-Agent': 'APILens',
-        },
-    });
+    try {
+        const response = await fetch('https://api.github.com/user/emails', {
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: 'application/vnd.github+json',
+                'User-Agent': 'APILens',
+            },
+        });
 
-    if (!response.ok) {
+        if (!response.ok) {
+            return undefined;
+        }
+
+        const emails = await response.json();
+        const primaryEmail = emails.find((email) => email.primary && email.verified) || emails.find((email) => email.verified);
+
+        return primaryEmail?.email;
+    } catch (error) {
         return undefined;
     }
-
-    const emails = await response.json();
-    const primaryEmail = emails.find((email) => email.primary && email.verified) || emails.find((email) => email.verified);
-
-    return primaryEmail?.email;
 };
 
 const getGithubAvatarUrl = (profile) => {
@@ -80,20 +84,25 @@ const githubCallback = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'GitHub authorization code is required', 'MISSING_OAUTH_CODE');
     }
 
-    const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
-        method: 'POST',
-        headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            'User-Agent': 'APILens',
-        },
-        body: JSON.stringify({
-            client_id: requireEnv('GITHUB_CLIENT_ID'),
-            client_secret: requireEnv('GITHUB_CLIENT_SECRET'),
-            code,
-            redirect_uri: requireEnv('GITHUB_CALLBACK_URL'),
-        }),
-    });
+    let tokenResponse;
+    try {
+        tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'User-Agent': 'APILens',
+            },
+            body: JSON.stringify({
+                client_id: requireEnv('GITHUB_CLIENT_ID'),
+                client_secret: requireEnv('GITHUB_CLIENT_SECRET'),
+                code,
+                redirect_uri: requireEnv('GITHUB_CALLBACK_URL'),
+            }),
+        });
+    } catch (error) {
+        throw new ApiError(503, `Failed to connect to GitHub OAuth (${error.message || 'fetch failed'})`, 'GITHUB_SERVICE_UNAVAILABLE');
+    }
 
     const tokenPayload = await tokenResponse.json();
 
@@ -105,13 +114,18 @@ const githubCallback = asyncHandler(async (req, res) => {
         throw new ApiError(401, 'GitHub did not return an access token', 'GITHUB_OAUTH_FAILED');
     }
 
-    const profileResponse = await fetch('https://api.github.com/user', {
-        headers: {
-            Authorization: `Bearer ${tokenPayload.access_token}`,
-            Accept: 'application/vnd.github+json',
-            'User-Agent': 'APILens',
-        },
-    });
+    let profileResponse;
+    try {
+        profileResponse = await fetch('https://api.github.com/user', {
+            headers: {
+                Authorization: `Bearer ${tokenPayload.access_token}`,
+                Accept: 'application/vnd.github+json',
+                'User-Agent': 'APILens',
+            },
+        });
+    } catch (error) {
+        throw new ApiError(503, `Failed to connect to GitHub API (${error.message || 'fetch failed'})`, 'GITHUB_SERVICE_UNAVAILABLE');
+    }
 
     const profile = await profileResponse.json();
 
