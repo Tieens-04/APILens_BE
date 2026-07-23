@@ -37,10 +37,37 @@ const githubFetch = async (accessToken, path, options = {}) => {
         headers.Authorization = `Bearer ${accessToken}`;
     }
 
-    const response = await fetch(`${GITHUB_API_URL}${path}`, {
-        ...options,
-        headers,
-    });
+    const timeoutMs = options.timeout || 10000;
+    let response;
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        const targetUrl = path.startsWith('http://') || path.startsWith('https://')
+            ? path
+            : `${GITHUB_API_URL}${path}`;
+
+        response = await fetch(targetUrl, {
+            ...options,
+            headers,
+            signal: options.signal || controller.signal,
+        }).finally(() => clearTimeout(timeoutId));
+    } catch (error) {
+        if (error instanceof ApiError) {
+            throw error;
+        }
+
+        if (error.name === 'AbortError') {
+            throw new ApiError(504, 'GitHub API request timed out. Please check your network connection.', 'GITHUB_TIMEOUT');
+        }
+
+        throw new ApiError(
+            503,
+            `Failed to connect to GitHub API (${error.message || 'fetch failed'}). Please verify network connectivity.`,
+            'GITHUB_SERVICE_UNAVAILABLE'
+        );
+    }
 
     const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
 
@@ -52,7 +79,7 @@ const githubFetch = async (accessToken, path, options = {}) => {
         throw new ApiError(429, 'GitHub API rate limit exceeded. Please try again later.', 'RATE_LIMITED');
     }
 
-    const payload = response.status === 204 ? null : await response.json();
+    const payload = response.status === 204 ? null : await response.json().catch(() => null);
 
     if (!response.ok) {
         throw new ApiError(
@@ -82,27 +109,19 @@ const getNextLink = (linkHeader) => {
 };
 
 const githubFetchAll = async (accessToken, path) => {
-    let url = `${GITHUB_API_URL}${path}`;
+    let currentUrl = path;
     const results = [];
 
-    while (url) {
-        const response = await fetch(url, {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                Accept: 'application/vnd.github+json',
-                'X-GitHub-Api-Version': '2022-11-28',
-                'User-Agent': 'APILens',
-            },
-        });
+    while (currentUrl) {
+        const { payload, headers } = await githubFetch(accessToken, currentUrl);
 
-        const payload = await response.json();
-
-        if (!response.ok) {
-            throw new ApiError(response.status, payload?.message || 'GitHub API request failed', 'GITHUB_API_ERROR');
+        if (Array.isArray(payload)) {
+            results.push(...payload);
+        } else if (payload) {
+            results.push(payload);
         }
 
-        results.push(...payload);
-        url = getNextLink(response.headers.get('link'));
+        currentUrl = getNextLink(headers.get('link'));
     }
 
     return results;
