@@ -8,10 +8,27 @@ const creditService = require('../services/credit.service');
 const ApiError = require('../utils/ApiError');
 const { runRuleEngine } = require('../rules');
 const PDFDocument = require('pdfkit');
+const { emitToUser } = require('../services/notification.service');
 
 const createAnalysis = asyncHandler(async (req, res) => {
     await creditService.checkAndDeductCredits(req.user._id, 'SCAN');
     const analysis = await analysisService.runAnalysis(req.user._id, req.body);
+
+    // Notify the user's browser tabs that a new analysis is available
+    emitToUser(req.user._id, 'analysis.created', {
+        analysis: {
+            _id: analysis._id,
+            repoFullName: analysis.repoFullName,
+            branch: analysis.branch,
+            filePath: analysis.filePath,
+            status: analysis.status,
+            score: analysis.score,
+            smellCount: analysis.smellCount,
+            endpointCount: analysis.endpointCount,
+            severitySummary: analysis.severitySummary,
+            createdAt: analysis.createdAt,
+        },
+    });
 
     res.status(201).json({
         analysis,
@@ -42,6 +59,11 @@ const listMyAnalyses = asyncHandler(async (req, res) => {
 const deleteAnalysis = asyncHandler(async (req, res) => {
     await analysisService.deleteAnalysis(req.user._id, req.params.id);
 
+    // Notify other tabs that this analysis has been removed
+    emitToUser(req.user._id, 'analysis.deleted', {
+        analysisId: req.params.id,
+    });
+
     res.status(200).json({
         success: true,
     });
@@ -50,6 +72,22 @@ const deleteAnalysis = asyncHandler(async (req, res) => {
 const rerunAnalysis = asyncHandler(async (req, res) => {
     await creditService.checkAndDeductCredits(req.user._id, 'SCAN');
     const analysis = await analysisService.rerunAnalysis(req.user._id, req.params.id);
+
+    // Rerun creates a fresh analysis — notify as created
+    emitToUser(req.user._id, 'analysis.created', {
+        analysis: {
+            _id: analysis._id,
+            repoFullName: analysis.repoFullName,
+            branch: analysis.branch,
+            filePath: analysis.filePath,
+            status: analysis.status,
+            score: analysis.score,
+            smellCount: analysis.smellCount,
+            endpointCount: analysis.endpointCount,
+            severitySummary: analysis.severitySummary,
+            createdAt: analysis.createdAt,
+        },
+    });
 
     res.status(201).json({
         analysis,

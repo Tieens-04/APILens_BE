@@ -4,6 +4,7 @@ const githubService = require('./github.service');
 const parserService = require('./parser.service');
 const aiSuggestionService = require('./aiSuggestion.service');
 const { runRuleEngine } = require('../rules');
+const { emitToUser } = require('./notification.service');
 
 const splitRepoFullName = (repoFullName) => {
     const [owner, repo] = String(repoFullName || '').split('/');
@@ -85,11 +86,39 @@ const runAnalysis = async (userId, payload) => {
 
         await analysis.save();
 
+        // Notify all tabs of this user that the analysis finished successfully
+        emitToUser(userId, 'analysis.updated', {
+            analysis: {
+                _id: analysis._id,
+                repoFullName: analysis.repoFullName,
+                branch: analysis.branch,
+                filePath: analysis.filePath,
+                fileType: analysis.fileType,
+                status: analysis.status,
+                score: analysis.score,
+                smellCount: analysis.smellCount,
+                endpointCount: analysis.endpointCount,
+                severitySummary: analysis.severitySummary,
+                createdAt: analysis.createdAt,
+                updatedAt: analysis.updatedAt,
+            },
+        });
+
         return analysis;
     } catch (error) {
         analysis.status = 'failed';
         analysis.errorMessage = error.message;
         await analysis.save();
+
+        // Notify tabs that the analysis failed so UI can show error state
+        emitToUser(userId, 'analysis.updated', {
+            analysis: {
+                _id: analysis._id,
+                repoFullName: analysis.repoFullName,
+                status: 'failed',
+                errorMessage: error.message,
+            },
+        });
 
         throw error;
     }
