@@ -24,6 +24,8 @@ const sanitizeEndpoint = (endpoint) => {
     return safeEndpoint;
 };
 
+const creditService = require('./credit.service');
+
 const runAnalysis = async (userId, payload) => {
     const { repoFullName, branch = 'main', filePath, fileType } = payload;
 
@@ -62,6 +64,8 @@ const runAnalysis = async (userId, payload) => {
             endpointCount: ruleResult.endpointCount,
             smells: ruleResult.smells,
         });
+
+        await creditService.recordAiUsage(userId, 1650);
 
         analysis.fileType = parseResult.fileType;
         analysis.status = 'done';

@@ -45,5 +45,15 @@ router.get('/:id', analysisController.getAnalysis);
  * @apilens param id
  */
 router.delete('/:id', analysisController.deleteAnalysis);
+/**
+ * @apilens responses 200,400,401,404,422,500
+ * @apilens param id
+ */
+router.post('/:id/generate-fix', analysisController.generateFix);
+/**
+ * @apilens responses 200,400,401,404,500
+ * @apilens param id
+ */
+router.post('/:id/create-pr', analysisController.createPullRequest);
 
 module.exports = router;

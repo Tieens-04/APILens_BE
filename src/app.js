@@ -8,6 +8,8 @@ const authRoutes = require('./routes/auth.routes');
 const repoRoutes = require('./routes/repo.routes');
 const parserRoutes = require('./routes/parser.routes');
 const analysisRoutes = require('./routes/analysis.routes');
+const orderRoutes = require('./routes/order.routes');
+const adminRoutes = require('./routes/admin.routes');
 const { notFound, errorHandler } = require('./middlewares/error.middleware');
 
 const app = express();
@@ -45,6 +47,8 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/repos', repoRoutes);
 app.use('/api/v1/parser', parserRoutes);
 app.use('/api/v1/analyses', analysisRoutes);
+app.use('/api/v1/orders', orderRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
