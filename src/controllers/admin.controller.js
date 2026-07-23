@@ -3,6 +3,7 @@ const User = require('../models/User.model');
 const Analysis = require('../models/Analysis.model');
 const Order = require('../models/Order.model');
 const ApiError = require('../utils/ApiError');
+const { emitToUser, emitToAdmin } = require('../services/notification.service');
 
 const getSystemStats = asyncHandler(async (req, res) => {
     const totalUsers = await User.countDocuments();
@@ -92,6 +93,23 @@ const updateUser = asyncHandler(async (req, res) => {
 
     await user.save();
 
+    // Notify the affected user's tabs AND all admin tabs
+    emitToUser(userId, 'user.updated', {
+        userId,
+        role: user.role,
+        plan: user.plan,
+        credits: user.credits,
+        maxCredits: user.maxCredits,
+        planExpiresAt: user.planExpiresAt,
+        updatedBy: req.user._id,
+    });
+    emitToAdmin('user.updated', {
+        userId,
+        role: user.role,
+        plan: user.plan,
+        updatedBy: req.user._id,
+    });
+
     res.status(200).json({
         success: true,
         user: user.toAuthJSON(),
@@ -107,6 +125,12 @@ const deleteUser = asyncHandler(async (req, res) => {
     }
 
     await User.findByIdAndDelete(userId);
+
+    // Notify all admins that a user was deleted
+    emitToAdmin('user.deleted', {
+        userId,
+        deletedBy: req.user._id,
+    });
 
     res.status(200).json({
         success: true,

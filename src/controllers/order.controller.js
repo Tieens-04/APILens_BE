@@ -1,6 +1,8 @@
 const asyncHandler = require('../utils/asyncHandler');
 const paymentService = require('../services/payment.service');
 const ApiError = require('../utils/ApiError');
+const { emitToUser } = require('../services/notification.service');
+const Order = require('../models/Order.model');
 
 const checkout = asyncHandler(async (req, res) => {
     const { plan } = req.body;
@@ -35,6 +37,20 @@ const paymentCallback = asyncHandler(async (req, res) => {
     }
 
     const result = await paymentService.handleCallback({ order_id, status, client_id });
+
+    // If the payment succeeded, push a realtime update to the buyer's browser
+    if (status === 'paid') {
+        const order = await Order.findOne({ paymentOrderId: order_id }).select('userId plan amount paidAt');
+        if (order) {
+            emitToUser(order.userId, 'order.updated', {
+                orderId: order._id,
+                plan: order.plan,
+                status: 'paid',
+                amount: order.amount,
+                paidAt: order.paidAt,
+            });
+        }
+    }
 
     res.status(200).json(result);
 });

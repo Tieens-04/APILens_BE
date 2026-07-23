@@ -1,6 +1,7 @@
 const Order = require('../models/Order.model');
 const User = require('../models/User.model');
 const ApiError = require('../utils/ApiError');
+const { emitToUser } = require('./notification.service');
 
 const getPaymentConfig = () => {
     const serviceUrl = process.env.PAYMENT_SERVICE_URL || 'https://payment-service-cfavf0dphzdnctb8.southeastasia-01.azurewebsites.net';
@@ -42,6 +43,15 @@ const applyUserPlanUpgrade = async (userId, plan) => {
     }
 
     await user.save();
+
+    // Push realtime plan/credits update to all of this user's browser tabs
+    emitToUser(user._id, 'user.updated', {
+        userId: user._id,
+        plan: user.plan,
+        credits: user.credits,
+        maxCredits: user.maxCredits,
+        planExpiresAt: user.planExpiresAt,
+    });
 };
 
 const createCheckoutOrder = async (userId, { plan }) => {
