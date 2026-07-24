@@ -10,6 +10,7 @@ const parserRoutes = require('./routes/parser.routes');
 const analysisRoutes = require('./routes/analysis.routes');
 const orderRoutes = require('./routes/order.routes');
 const adminRoutes = require('./routes/admin.routes');
+const swaggerRoutes = require('./routes/swagger.routes');
 const { notFound, errorHandler } = require('./middlewares/error.middleware');
 
 const app = express();
@@ -20,12 +21,22 @@ if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 app.use(cors(corsOptions));
-app.use(rateLimit({
-  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_MAX) || 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-}));
+if (process.env.NODE_ENV !== 'development') {
+  app.use(rateLimit({
+    windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+    max: Number(process.env.RATE_LIMIT_MAX) || 1000,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }));
+} else {
+  // Relaxed rate limit for local development
+  app.use(rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10000,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }));
+}
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -49,6 +60,7 @@ app.use('/api/v1/parser', parserRoutes);
 app.use('/api/v1/analyses', analysisRoutes);
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/swagger', swaggerRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
