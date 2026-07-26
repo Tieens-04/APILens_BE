@@ -20,6 +20,7 @@ jest.mock('../../src/middlewares/auth.middleware', () => ({
         };
         next();
     },
+    requirePremium: (req, res, next) => next(),
 }));
 
 jest.mock('../../src/services/github.service', () => ({
