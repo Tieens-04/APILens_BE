@@ -38,6 +38,10 @@ const createMockReqRes = ({ method = 'GET', path = '/', body = {}, headers = {},
             resHeaders[name.toLowerCase()] = val;
             return res;
         },
+        header(name, val) {
+            resHeaders[name.toLowerCase()] = val;
+            return res;
+        },
         json(data) {
             responseData = data;
             return res;
@@ -66,15 +70,14 @@ const createMockReqRes = ({ method = 'GET', path = '/', body = {}, headers = {},
 /**
  * Executes a snippet of Express controller / route handler code in an isolated VM context.
  */
-const executeInSandbox = async ({ code, method, path, body = {}, headers = {}, query = {} }) => {
+const executeInSandbox = async ({ code, method = 'GET', path = '/', body = {}, headers = {}, query = {} }) => {
     const startTime = performance.now();
     const { req, res, getResult } = createMockReqRes({ method, path, body, headers, query });
 
-    // Validate syntax with Acorn AST parser first
+    // Validate syntax with Acorn AST parser
     try {
         acorn.parse(code, { ecmaVersion: 'latest', sourceType: 'module' });
     } catch (syntaxErr) {
-        // If code has minor ES module syntax, try script mode
         try {
             acorn.parse(code, { ecmaVersion: 'latest', sourceType: 'script' });
         } catch (err) {
@@ -82,10 +85,38 @@ const executeInSandbox = async ({ code, method, path, body = {}, headers = {}, q
         }
     }
 
-    // Prepare an isolated VM sandbox context
+    const detectedHandlers = [];
+
+    // Mock Express router/app registrar
+    const registerRoute = (routePath, ...handlers) => {
+        handlers.forEach((h) => {
+            if (typeof h === 'function') {
+                detectedHandlers.push(h);
+            }
+        });
+    };
+
+    const mockAppOrRouter = {
+        get: registerRoute,
+        post: registerRoute,
+        put: registerRoute,
+        patch: registerRoute,
+        delete: registerRoute,
+        use: () => {},
+    };
+
+    const mockModule = { exports: {} };
+    const mockExports = mockModule.exports;
+
+    // Isolated VM sandbox context
     const sandbox = {
         req,
         res,
+        app: mockAppOrRouter,
+        router: mockAppOrRouter,
+        express: Object.assign(() => mockAppOrRouter, { Router: () => mockAppOrRouter }),
+        module: mockModule,
+        exports: mockExports,
         console: {
             log: () => {},
             error: () => {},
@@ -99,27 +130,46 @@ const executeInSandbox = async ({ code, method, path, body = {}, headers = {}, q
 
     const context = vm.createContext(sandbox);
 
-    // Instrument the code to execute route handlers or controller functions
     const executionScript = `
         (async () => {
             ${code}
 
-            // Detect route handlers or exported controller functions
+            // 1. Check if express app/router handlers were registered
+            if (typeof _detectedHandlers !== 'undefined' && _detectedHandlers.length > 0) {
+                for (const h of _detectedHandlers) {
+                    await h(req, res);
+                }
+                return;
+            }
+
+            // 2. Check exported functions (module.exports or exports)
+            const exportsObj = module.exports || exports;
+            if (typeof exportsObj === 'function') {
+                await exportsObj(req, res);
+                return;
+            }
+            if (typeof exportsObj === 'object') {
+                const fns = Object.values(exportsObj).filter(val => typeof val === 'function');
+                if (fns.length > 0) {
+                    await fns[0](req, res);
+                    return;
+                }
+            }
+
+            // 3. Fallback: inspect top-level scope functions
             if (typeof handler === 'function') {
                 await handler(req, res);
-            } else if (typeof exports !== 'undefined' && typeof exports.default === 'function') {
-                await exports.default(req, res);
-            } else {
-                // If code directly calls res.json or res.status, res will be populated
             }
         })();
     `;
 
+    // Inject detectedHandlers array into sandbox
+    sandbox._detectedHandlers = detectedHandlers;
+
     try {
         const script = new vm.Script(executionScript);
-        script.runInContext(context, { timeout: 3000 }); // 3 second max timeout
+        await script.runInContext(context, { timeout: 3000 });
     } catch (runtimeErr) {
-        // If code executed res.json before error or throws error
         const currentResult = getResult();
         if (!currentResult.body) {
             currentResult.status = 500;
@@ -133,9 +183,9 @@ const executeInSandbox = async ({ code, method, path, body = {}, headers = {}, q
     const endTime = performance.now();
     const result = getResult();
 
-    // If sandbox execution produced default body, analyze AST status code statements in code
+    // If execution produced no body, check AST regex patterns for res.status(...).json(...)
     if (!result.body) {
-        const statusMatch = code.match(/res\.status\((\d{3})\)\.json\(([\s\S]*?)\)/);
+        const statusMatch = code.match(/res\.status\((\d{3})\)\.(?:json|send)\(([\s\S]*?)\)/);
         if (statusMatch) {
             result.status = parseInt(statusMatch[1], 10);
             try {
