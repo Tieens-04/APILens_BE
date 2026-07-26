@@ -66,4 +66,27 @@ describe('Swagger Executor Service (Sandboxed VM)', () => {
         expect(result.status).toBe(500);
         expect(result.body.error).toContain('Runtime Error');
     });
+
+    it('should handle code with require statements without throwing require is not defined', async () => {
+        const code = `
+            const express = require('express');
+            const jwt = require('jsonwebtoken');
+            const router = express.Router();
+
+            router.post('/register', (req, res) => {
+                const { email } = req.body;
+                res.status(200).json({ success: true, email });
+            });
+        `;
+
+        const result = await executeInSandbox({
+            code,
+            method: 'POST',
+            path: '/register',
+            body: { email: 'test@example.com' },
+        });
+
+        expect(result.status).toBe(200);
+        expect(result.body).toEqual({ success: true, email: 'test@example.com' });
+    });
 });

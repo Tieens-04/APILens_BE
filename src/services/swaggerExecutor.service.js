@@ -108,6 +108,24 @@ const executeInSandbox = async ({ code, method = 'GET', path = '/', body = {}, h
     const mockModule = { exports: {} };
     const mockExports = mockModule.exports;
 
+    const mockRequire = (modName) => {
+        if (modName === 'express') {
+            return Object.assign(() => mockAppOrRouter, { Router: () => mockAppOrRouter });
+        }
+        try {
+            return require(modName);
+        } catch {
+            return new Proxy(() => {}, {
+                get: (_target, prop) => {
+                    if (prop === 'verify' || prop === 'sign') return () => ({ id: 'sandbox-user', sub: '123' });
+                    if (prop === 'compare' || prop === 'hash') return () => true;
+                    return () => {};
+                },
+                apply: () => ({}),
+            });
+        }
+    };
+
     // Isolated VM sandbox context
     const sandbox = {
         req,
@@ -117,6 +135,8 @@ const executeInSandbox = async ({ code, method = 'GET', path = '/', body = {}, h
         express: Object.assign(() => mockAppOrRouter, { Router: () => mockAppOrRouter }),
         module: mockModule,
         exports: mockExports,
+        require: mockRequire,
+        process: { env: { NODE_ENV: 'development', JWT_SECRET: 'sandbox_jwt_secret' } },
         console: {
             log: () => {},
             error: () => {},
