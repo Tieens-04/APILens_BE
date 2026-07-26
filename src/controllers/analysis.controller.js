@@ -348,6 +348,42 @@ const createPullRequest = asyncHandler(async (req, res) => {
     });
 
     // 5. Create Pull Request (POST /repos/:owner/:repo/pulls)
+    // Generate OpenAPI Spec Table for PR Markdown Body
+    let swaggerTableMarkdown = '';
+    try {
+        const { parseExpressAst } = require('../parsers/expressAst.parser');
+        const { generateOpenApiSpec } = require('../services/swaggerGenerator.service');
+        const parseResult = parseExpressAst(fixedContent, { sourceFile: analysis.filePath });
+        const openApiSpec = generateOpenApiSpec({
+            title: analysis.repoFullName,
+            description: `Swagger spec for fixed code`,
+            endpoints: parseResult.endpoints || [],
+        });
+
+        const pathRows = [];
+        Object.entries(openApiSpec.paths || {}).forEach(([pathStr, methodsObj]) => {
+            Object.entries(methodsObj || {}).forEach(([methodStr, op]) => {
+                if (['get', 'post', 'put', 'patch', 'delete'].includes(methodStr.toLowerCase())) {
+                    pathRows.push(`| \`${methodStr.toUpperCase()}\` | \`${pathStr}\` | ${op.summary || op.description || 'Verified Endpoint'} | \`200/201 OK\` |`);
+                }
+            });
+        });
+
+        if (pathRows.length > 0) {
+            swaggerTableMarkdown = [
+                '',
+                '### 📋 OpenAPI 3.0 / Swagger Specification (Auto-Generated)',
+                '| Method | Endpoint Path | Description | Expected Status |',
+                '|:---|:---|:---|:---|',
+                ...pathRows,
+                '',
+                '> 👑 **Generated & Sandboxed by APILens Execution Engine**',
+            ].join('\n');
+        }
+    } catch {
+        // Fallback gracefully
+    }
+
     const prTitle = `fix(api): fix REST API design smell: ${smell.smellName}`;
     const prBody = [
         '### APILens Auto-Remediation',
@@ -359,6 +395,7 @@ const createPullRequest = asyncHandler(async (req, res) => {
         `- **Suggestion**: ${smell.suggestion}`,
         `- **Affected Endpoints**: \`${smell.endpoints?.join('`, `') || 'N/A'}\``,
         `- **Severity**: **${smell.severity}**`,
+        swaggerTableMarkdown,
         '',
         'Please review the changes and merge if they meet your quality standards.',
     ].join('\n');

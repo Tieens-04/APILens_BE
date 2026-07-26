@@ -69,8 +69,30 @@ const executeSwaggerEndpoint = asyncHandler(async (req, res) => {
     });
 });
 
+const { convertOpenApiToPostman } = require('../services/postmanExporter.service');
+
+/**
+ * Controller to convert OpenAPI spec to Postman Collection v2.1.0 format.
+ * Protected by requirePremium middleware.
+ */
+const exportPostmanCollection = asyncHandler(async (req, res) => {
+    const { spec } = req.body;
+    if (!spec || typeof spec !== 'object') {
+        throw new ApiError(400, 'OpenAPI Spec object is required', 'INVALID_SPEC');
+    }
+
+    const postmanCollection = convertOpenApiToPostman(spec);
+
+    res.status(200).json({
+        success: true,
+        collection: postmanCollection,
+    });
+});
+
 module.exports = {
     generateSwaggerSpec,
     executeSwaggerEndpoint,
+    exportPostmanCollection,
 };
+
 
