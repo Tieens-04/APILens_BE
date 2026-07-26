@@ -29,6 +29,15 @@ const protect = asyncHandler(async (req, res, next) => {
     next();
 });
 
+const requirePremium = (req, res, next) => {
+    if (!req.user || req.user.plan === 'free') {
+        throw new ApiError(403, 'This feature requires a Pro or Enterprise plan', 'PREMIUM_REQUIRED');
+    }
+    next();
+};
+
 module.exports = {
     protect,
+    requirePremium,
 };
+
