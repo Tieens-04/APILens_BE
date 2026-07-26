@@ -7,6 +7,7 @@ jest.mock('../../src/middlewares/auth.middleware', () => ({
         };
         next();
     },
+    requirePremium: (req, res, next) => next(),
 }));
 
 const app = require('../../src/app');

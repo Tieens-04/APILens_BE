@@ -166,24 +166,28 @@ const executeInSandbox = async ({ code, method = 'GET', path = '/', body = {}, h
     // Inject detectedHandlers array into sandbox
     sandbox._detectedHandlers = detectedHandlers;
 
+    let runtimeError = null;
     try {
         const script = new vm.Script(executionScript);
         await script.runInContext(context, { timeout: 3000 });
     } catch (runtimeErr) {
-        const currentResult = getResult();
-        if (!currentResult.body) {
-            currentResult.status = 500;
-            currentResult.body = {
-                error: 'Runtime Error during Sandboxed Execution',
-                details: runtimeErr.message,
-            };
-        }
+        runtimeError = runtimeErr;
     }
 
     const endTime = performance.now();
     const result = getResult();
 
-    // If execution produced no body, check AST regex patterns for res.status(...).json(...)
+    // If a runtime error occurred and the handler didn't produce a response body,
+    // return 500 with error details instead of falling through to the fallback
+    if (runtimeError && !result.body) {
+        result.status = 500;
+        result.body = {
+            error: 'Runtime Error during Sandboxed Execution',
+            details: runtimeError.message,
+        };
+    }
+
+    // If execution produced no body (and no runtime error), check AST regex patterns
     if (!result.body) {
         const statusMatch = code.match(/res\.status\((\d{3})\)\.(?:json|send)\(([\s\S]*?)\)/);
         if (statusMatch) {
