@@ -219,41 +219,43 @@ const getRouteCall = (node) => {
  * - Direct access: req.body.email, req.body.password
  * Returns an object with field names and example values inferred from field names.
  */
+const isReqBodyNode = (node) => {
+    if (!node) return false;
+    if (node.type === 'ChainExpression') return isReqBodyNode(node.expression);
+    if (node.type === 'MemberExpression') {
+        const prop = node.property?.name || node.property?.value;
+        const obj = node.object?.name;
+        return (prop === 'body' || prop === 'payload') && (obj === 'req' || obj === 'request' || obj === 'r');
+    }
+    return false;
+};
+
+const isReqBodyInit = (initNode) => {
+    if (!initNode) return false;
+    if (isReqBodyNode(initNode)) return true;
+    if (initNode.type === 'LogicalExpression' && (isReqBodyNode(initNode.left) || isReqBodyNode(initNode.right))) return true;
+    if (initNode.type === 'AssignmentExpression' && isReqBodyNode(initNode.right)) return true;
+    if (initNode.type === 'AwaitExpression' && isReqBodyNode(initNode.argument)) return true;
+    return false;
+};
+
 const extractReqBodyFields = (routeCallNode) => {
     const fields = new Set();
 
-    // Get handler functions from route call arguments (skip path string, skip middleware)
-    const handlers = (routeCallNode.arguments || []).filter(
-        (arg) => arg.type === 'FunctionExpression' || arg.type === 'ArrowFunctionExpression'
-    );
+    walk(routeCallNode, (node) => {
+        // Pattern 1: const { field1, field2 } = req.body || {};
+        if (node.type === 'VariableDeclarator' && node.id?.type === 'ObjectPattern' && isReqBodyInit(node.init)) {
+            (node.id.properties || []).forEach((prop) => {
+                const name = prop.key?.name || prop.key?.value || prop.value?.name;
+                if (name) fields.add(name);
+            });
+        }
 
-    handlers.forEach((handler) => {
-        walk(handler, (node) => {
-            // Pattern 1: const { field1, field2 } = req.body;
-            if (
-                node.type === 'VariableDeclarator' &&
-                node.id?.type === 'ObjectPattern' &&
-                node.init?.type === 'MemberExpression' &&
-                node.init.object?.name === 'req' &&
-                node.init.property?.name === 'body'
-            ) {
-                node.id.properties.forEach((prop) => {
-                    const name = prop.key?.name || prop.key?.value;
-                    if (name) fields.add(name);
-                });
-            }
-
-            // Pattern 2: req.body.fieldName
-            if (
-                node.type === 'MemberExpression' &&
-                node.object?.type === 'MemberExpression' &&
-                node.object.object?.name === 'req' &&
-                node.object.property?.name === 'body' &&
-                node.property?.name
-            ) {
-                fields.add(node.property.name);
-            }
-        });
+        // Pattern 2: req.body.fieldName or req?.body?.fieldName
+        if (node.type === 'MemberExpression' && isReqBodyInit(node.object)) {
+            const name = node.property?.name || node.property?.value;
+            if (name) fields.add(name);
+        }
     });
 
     if (fields.size === 0) return null;

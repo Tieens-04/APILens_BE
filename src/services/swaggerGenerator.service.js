@@ -60,6 +60,47 @@ const formatPathForSwagger = (path) => {
 };
 
 /**
+ * Infers a realistic request body example based on path, method, or existing body data
+ */
+const getSmartDefaultRequestBody = (path = '', method = '', existingBody = null) => {
+    // 1. If existingBody is provided and has actual properties (not empty object and not { example: 'data' }), use it
+    if (existingBody && typeof existingBody === 'object' && !Array.isArray(existingBody)) {
+        const keys = Object.keys(existingBody);
+        if (keys.length > 0 && !(keys.length === 1 && keys[0] === 'example' && existingBody.example === 'data')) {
+            return existingBody;
+        }
+    }
+
+    const lowerPath = String(path).toLowerCase();
+
+    // 2. Infer smart default body from endpoint path
+    if (lowerPath.includes('login') || lowerPath.includes('signin') || lowerPath.includes('auth/token')) {
+        return { email: 'user@example.com', password: 'SecureP@ss123' };
+    }
+    if (lowerPath.includes('register') || lowerPath.includes('signup') || lowerPath.includes('user/create')) {
+        return { username: 'john_doe', email: 'user@example.com', password: 'SecureP@ss123' };
+    }
+    if (lowerPath.includes('forgot') || lowerPath.includes('reset') || lowerPath.includes('recover')) {
+        return { email: 'user@example.com' };
+    }
+    if (lowerPath.includes('pr') || lowerPath.includes('pull-request')) {
+        return { title: 'Fix API smell', branchName: 'fix/api-smell', description: 'Auto-generated fix PR' };
+    }
+    if (lowerPath.includes('comment') || lowerPath.includes('review') || lowerPath.includes('feedback')) {
+        return { content: 'This is a sample comment message' };
+    }
+    if (lowerPath.includes('product') || lowerPath.includes('item') || lowerPath.includes('order')) {
+        return { name: 'Sample Item', price: 99.99, quantity: 1 };
+    }
+    if (lowerPath.includes('profile') || lowerPath.includes('user')) {
+        return { name: 'John Doe', email: 'user@example.com', bio: 'Sample bio' };
+    }
+
+    // 3. General fallback if no path match
+    return { name: 'Sample Request Data', description: 'Sample description text' };
+};
+
+/**
  * Converts APILens endpoints into a valid OpenAPI 3.0.3 Spec
  */
 const generateOpenApiSpec = ({ title, version = '1.0.0', description = '', endpoints = [], serverUrl = 'http://localhost:5000' }) => {
@@ -158,13 +199,16 @@ const generateOpenApiSpec = ({ title, version = '1.0.0', description = '', endpo
         };
 
         if (['post', 'put', 'patch'].includes(method)) {
+            const rawBodyExample = ep.requestBody || ep.body;
+            const inferredBody = getSmartDefaultRequestBody(swaggerPath, method, rawBodyExample);
+
             operation.requestBody = {
                 required: true,
                 content: {
                     'application/json': {
                         schema: {
                             type: 'object',
-                            example: sanitizeDeep(ep.requestBody || ep.body || { example: 'data' }),
+                            example: sanitizeDeep(inferredBody),
                         },
                     },
                 },
