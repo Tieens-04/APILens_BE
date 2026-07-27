@@ -213,6 +213,85 @@ const getRouteCall = (node) => {
     };
 };
 
+/**
+ * Extracts req.body fields from route handler functions by analyzing AST patterns:
+ * - Destructuring: const { email, password } = req.body;
+ * - Direct access: req.body.email, req.body.password
+ * Returns an object with field names and example values inferred from field names.
+ */
+const extractReqBodyFields = (routeCallNode) => {
+    const fields = new Set();
+
+    // Get handler functions from route call arguments (skip path string, skip middleware)
+    const handlers = (routeCallNode.arguments || []).filter(
+        (arg) => arg.type === 'FunctionExpression' || arg.type === 'ArrowFunctionExpression'
+    );
+
+    handlers.forEach((handler) => {
+        walk(handler, (node) => {
+            // Pattern 1: const { field1, field2 } = req.body;
+            if (
+                node.type === 'VariableDeclarator' &&
+                node.id?.type === 'ObjectPattern' &&
+                node.init?.type === 'MemberExpression' &&
+                node.init.object?.name === 'req' &&
+                node.init.property?.name === 'body'
+            ) {
+                node.id.properties.forEach((prop) => {
+                    const name = prop.key?.name || prop.key?.value;
+                    if (name) fields.add(name);
+                });
+            }
+
+            // Pattern 2: req.body.fieldName
+            if (
+                node.type === 'MemberExpression' &&
+                node.object?.type === 'MemberExpression' &&
+                node.object.object?.name === 'req' &&
+                node.object.property?.name === 'body' &&
+                node.property?.name
+            ) {
+                fields.add(node.property.name);
+            }
+        });
+    });
+
+    if (fields.size === 0) return null;
+
+    // Generate realistic example values based on field name patterns
+    const exampleBody = {};
+    fields.forEach((field) => {
+        const lower = field.toLowerCase();
+        if (lower.includes('email')) exampleBody[field] = 'user@example.com';
+        else if (lower.includes('password') || lower.includes('passwd')) exampleBody[field] = 'SecureP@ss123';
+        else if (lower.includes('name') && lower.includes('user')) exampleBody[field] = 'john_doe';
+        else if (lower.includes('firstname') || lower.includes('first_name')) exampleBody[field] = 'John';
+        else if (lower.includes('lastname') || lower.includes('last_name')) exampleBody[field] = 'Doe';
+        else if (lower === 'name') exampleBody[field] = 'John Doe';
+        else if (lower.includes('phone') || lower.includes('tel')) exampleBody[field] = '+84901234567';
+        else if (lower.includes('url') || lower.includes('link') || lower.includes('website')) exampleBody[field] = 'https://example.com';
+        else if (lower.includes('avatar') || lower.includes('image') || lower.includes('photo')) exampleBody[field] = 'https://example.com/avatar.jpg';
+        else if (lower.includes('address')) exampleBody[field] = '123 Main St, Ho Chi Minh City';
+        else if (lower.includes('title')) exampleBody[field] = 'Sample Title';
+        else if (lower.includes('description') || lower.includes('desc') || lower.includes('content') || lower.includes('body') || lower.includes('message') || lower.includes('text') || lower.includes('comment') || lower.includes('note')) exampleBody[field] = 'Sample description text';
+        else if (lower.includes('age')) exampleBody[field] = 25;
+        else if (lower.includes('price') || lower.includes('amount') || lower.includes('cost') || lower.includes('total') || lower.includes('salary')) exampleBody[field] = 99.99;
+        else if (lower.includes('quantity') || lower.includes('qty') || lower.includes('count') || lower.includes('num')) exampleBody[field] = 1;
+        else if (lower.includes('id')) exampleBody[field] = '507f1f77bcf86cd799439011';
+        else if (lower.includes('date') || lower.includes('time') || lower.includes('created') || lower.includes('updated')) exampleBody[field] = '2026-01-01T00:00:00.000Z';
+        else if (lower.includes('active') || lower.includes('enabled') || lower.includes('verified') || lower.includes('is_') || lower.includes('has_')) exampleBody[field] = true;
+        else if (lower.includes('role') || lower.includes('type') || lower.includes('status') || lower.includes('plan')) exampleBody[field] = 'user';
+        else if (lower.includes('token') || lower.includes('code') || lower.includes('key')) exampleBody[field] = 'abc123xyz';
+        else if (lower.includes('repo') || lower.includes('repository')) exampleBody[field] = 'owner/repo-name';
+        else if (lower.includes('branch')) exampleBody[field] = 'main';
+        else if (lower.includes('file') || lower.includes('path')) exampleBody[field] = 'src/index.js';
+        else if (lower.includes('tags') || lower.includes('categories') || lower.includes('items')) exampleBody[field] = ['item1', 'item2'];
+        else exampleBody[field] = `sample_${field}`;
+    });
+
+    return exampleBody;
+};
+
 const getMountCall = (node) => {
     if (node.type !== 'CallExpression' || node.callee?.type !== 'MemberExpression') {
         return null;
@@ -309,11 +388,17 @@ const parseExpressAst = (content, options = {}) => {
 
         const leadingComment = getLeadingComment(comments, routeCall.lineNumber);
 
+        // Extract req.body fields from handler for POST/PUT/PATCH methods
+        const reqBodyFields = ['post', 'put', 'patch'].includes(routeCall.method)
+            ? extractReqBodyFields(node)
+            : null;
+
         endpoints.push(normalizeEndpoint({
             method: routeCall.method,
             path: joinPaths(baseByRouterName[routeCall.objectName] || basePath, routeCall.path),
             parameters: getDocumentedParameters(leadingComment),
             responses: getDocumentedResponses(leadingComment),
+            requestBody: reqBodyFields,
             sourceFile: options.sourceFile,
             lineNumber: routeCall.lineNumber,
             raw: {
