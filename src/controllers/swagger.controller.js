@@ -9,10 +9,21 @@ const { parseExpressAst } = require('../parsers/expressAst.parser');
  * Protected by requirePremium middleware.
  */
 const generateSwaggerSpec = asyncHandler(async (req, res) => {
-    const { analysisId, code, endpoints: customEndpoints, serverUrl } = req.body;
+    const { analysisId, code, endpoints: customEndpoints, serverUrl, repoFullName, branch, filePath } = req.body;
     let endpointsToSpec = [];
     let title = 'API Specification';
     let description = 'Generated OpenAPI 3.0 specification';
+
+    // Tie the generated spec/Postman collection to the repo it came from whenever
+    // that context is available, instead of a generic title - a collection named
+    // "API Specification" gives no clue which repo/branch/file it was for once
+    // exported and opened later in Postman.
+    if (repoFullName) {
+        title = filePath ? `${repoFullName} - ${filePath}` : repoFullName;
+        description = branch
+            ? `APILens Swagger spec for ${repoFullName} (branch ${branch})`
+            : `APILens Swagger spec for ${repoFullName}`;
+    }
 
     if (analysisId) {
         const analysis = await Analysis.findOne({ _id: analysisId, userId: req.user._id });
@@ -25,9 +36,11 @@ const generateSwaggerSpec = asyncHandler(async (req, res) => {
     } else if (Array.isArray(customEndpoints) && customEndpoints.length > 0) {
         endpointsToSpec = customEndpoints;
     } else if (code && typeof code === 'string') {
-        const parseResult = parseExpressAst(code, { sourceFile: 'fixedCode.js' });
+        const parseResult = parseExpressAst(code, { sourceFile: filePath || 'fixedCode.js' });
         endpointsToSpec = parseResult.endpoints || [];
-        description = 'APILens Swagger spec generated from fixed source code';
+        if (!repoFullName) {
+            description = 'APILens Swagger spec generated from fixed source code';
+        }
     } else {
         throw new ApiError(400, 'Either analysisId, endpoints array, or code string must be provided', 'INVALID_INPUT');
     }
@@ -42,30 +55,6 @@ const generateSwaggerSpec = asyncHandler(async (req, res) => {
     res.status(200).json({
         success: true,
         spec: openApiSpec,
-    });
-});
-
-const { executeInSandbox } = require('../services/swaggerExecutor.service');
-
-/**
- * Controller to execute endpoint code in Sandboxed Node VM environment.
- * Protected by requirePremium middleware.
- */
-const executeSwaggerEndpoint = asyncHandler(async (req, res) => {
-    const { code, method = 'GET', path = '/', body = {}, headers = {}, query = {} } = req.body;
-
-    const result = await executeInSandbox({
-        code: code || '',
-        method,
-        path,
-        body,
-        headers,
-        query,
-    });
-
-    res.status(200).json({
-        success: true,
-        result,
     });
 });
 
@@ -91,7 +80,6 @@ const exportPostmanCollection = asyncHandler(async (req, res) => {
 
 module.exports = {
     generateSwaggerSpec,
-    executeSwaggerEndpoint,
     exportPostmanCollection,
 };
 

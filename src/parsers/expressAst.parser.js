@@ -213,6 +213,160 @@ const getRouteCall = (node) => {
     };
 };
 
+/**
+ * Extracts req.<prop> fields from route handler functions by analyzing AST patterns:
+ * - Destructuring: const { email, password } = req.body;
+ * - Direct access: req.body.email, req.body.password, req.headers['x-api-key']
+ * Generalized over the request property being read (body, query, headers, ...).
+ */
+const isReqPropNode = (node, propNames) => {
+    if (!node) return false;
+    if (node.type === 'ChainExpression') return isReqPropNode(node.expression, propNames);
+    if (node.type === 'MemberExpression') {
+        const prop = node.property?.name || node.property?.value;
+        const obj = node.object?.name;
+        return propNames.includes(prop) && (obj === 'req' || obj === 'request' || obj === 'r');
+    }
+    return false;
+};
+
+const isReqBodyNode = (node) => isReqPropNode(node, ['body', 'payload']);
+
+const isReqPropInit = (initNode, propNames) => {
+    if (!initNode) return false;
+    if (isReqPropNode(initNode, propNames)) return true;
+    if (initNode.type === 'LogicalExpression' && (isReqPropInit(initNode.left, propNames) || isReqPropInit(initNode.right, propNames))) return true;
+    if (initNode.type === 'AssignmentExpression' && isReqPropInit(initNode.right, propNames)) return true;
+    if (initNode.type === 'AwaitExpression' && isReqPropInit(initNode.argument, propNames)) return true;
+    return false;
+};
+
+const isReqBodyInit = (initNode) => isReqPropInit(initNode, ['body', 'payload']);
+
+/**
+ * Walks a route handler and collects field names read off req.<propNames>,
+ * e.g. propNames=['body'] finds req.body.email, propNames=['query'] finds req.query.page.
+ */
+const extractReqFieldNames = (routeCallNode, propNames) => {
+    const fields = new Set();
+
+    walk(routeCallNode, (node) => {
+        // Pattern 1: const { field1, field2 } = req.body || {};
+        if (node.type === 'VariableDeclarator' && node.id?.type === 'ObjectPattern' && isReqPropInit(node.init, propNames)) {
+            (node.id.properties || []).forEach((prop) => {
+                const name = prop.key?.name || prop.key?.value || prop.value?.name;
+                if (name) fields.add(name);
+            });
+        }
+
+        // Pattern 2: req.body.fieldName or req?.body?.fieldName
+        if (node.type === 'MemberExpression' && isReqPropInit(node.object, propNames)) {
+            const name = node.property?.name || node.property?.value;
+            if (name) fields.add(name);
+        }
+    });
+
+    return fields;
+};
+
+const extractReqBodyFields = (routeCallNode) => {
+    const fields = extractReqFieldNames(routeCallNode, ['body', 'payload']);
+
+    if (fields.size === 0) return null;
+
+    // Generate realistic example values based on field name patterns
+    const exampleBody = {};
+    fields.forEach((field) => {
+        const lower = field.toLowerCase();
+        if (lower.includes('email')) exampleBody[field] = 'user@example.com';
+        else if (lower.includes('password') || lower.includes('passwd')) exampleBody[field] = 'SecureP@ss123';
+        else if (lower.includes('name') && lower.includes('user')) exampleBody[field] = 'john_doe';
+        else if (lower.includes('firstname') || lower.includes('first_name')) exampleBody[field] = 'John';
+        else if (lower.includes('lastname') || lower.includes('last_name')) exampleBody[field] = 'Doe';
+        else if (lower === 'name') exampleBody[field] = 'John Doe';
+        else if (lower.includes('phone') || lower.includes('tel')) exampleBody[field] = '+84901234567';
+        else if (lower.includes('url') || lower.includes('link') || lower.includes('website')) exampleBody[field] = 'https://example.com';
+        else if (lower.includes('avatar') || lower.includes('image') || lower.includes('photo')) exampleBody[field] = 'https://example.com/avatar.jpg';
+        else if (lower.includes('address')) exampleBody[field] = '123 Main St, Ho Chi Minh City';
+        else if (lower.includes('title')) exampleBody[field] = 'Sample Title';
+        else if (lower.includes('description') || lower.includes('desc') || lower.includes('content') || lower.includes('body') || lower.includes('message') || lower.includes('text') || lower.includes('comment') || lower.includes('note')) exampleBody[field] = 'Sample description text';
+        else if (lower.includes('age')) exampleBody[field] = 25;
+        else if (lower.includes('price') || lower.includes('amount') || lower.includes('cost') || lower.includes('total') || lower.includes('salary')) exampleBody[field] = 99.99;
+        else if (lower.includes('quantity') || lower.includes('qty') || lower.includes('count') || lower.includes('num')) exampleBody[field] = 1;
+        else if (lower.includes('id')) exampleBody[field] = '507f1f77bcf86cd799439011';
+        else if (lower.includes('date') || lower.includes('time') || lower.includes('created') || lower.includes('updated')) exampleBody[field] = '2026-01-01T00:00:00.000Z';
+        else if (lower.includes('active') || lower.includes('enabled') || lower.includes('verified') || lower.includes('is_') || lower.includes('has_')) exampleBody[field] = true;
+        else if (lower.includes('role') || lower.includes('type') || lower.includes('status') || lower.includes('plan')) exampleBody[field] = 'user';
+        else if (lower.includes('token') || lower.includes('code') || lower.includes('key')) exampleBody[field] = 'abc123xyz';
+        else if (lower.includes('repo') || lower.includes('repository')) exampleBody[field] = 'owner/repo-name';
+        else if (lower.includes('branch')) exampleBody[field] = 'main';
+        else if (lower.includes('file') || lower.includes('path')) exampleBody[field] = 'src/index.js';
+        else if (lower.includes('tags') || lower.includes('categories') || lower.includes('items')) exampleBody[field] = ['item1', 'item2'];
+        else exampleBody[field] = `sample_${field}`;
+    });
+
+    return exampleBody;
+};
+
+/**
+ * Infers query-string parameters from req.query.<name> / const { x } = req.query reads.
+ */
+const extractQueryParameters = (routeCallNode) => {
+    const fields = extractReqFieldNames(routeCallNode, ['query']);
+    return [...fields].map((name) => ({ name, in: 'query', required: false, schema: { type: 'string' } }));
+};
+
+/**
+ * Infers custom header parameters from req.headers.<name> / req.headers['x'] reads.
+ * Authorization is intentionally excluded here since it is represented via the
+ * OpenAPI `security` scheme instead, to avoid a duplicate/confusing entry.
+ */
+const extractHeaderParameters = (routeCallNode) => {
+    const fields = extractReqFieldNames(routeCallNode, ['headers']);
+    return [...fields]
+        .filter((name) => name.toLowerCase() !== 'authorization')
+        .map((name) => ({ name, in: 'header', required: false, schema: { type: 'string' } }));
+};
+
+const AUTH_MIDDLEWARE_NAME_PATTERN = /auth|protect|jwt|verifytoken|requireauth|isauthenticated|ensureauth|authorize|permit/i;
+
+/**
+ * Detects whether a route requires authentication by checking:
+ * 1. Middleware identifiers passed to the route registration (e.g. router.get(path, protect, handler))
+ * 2. Handler code reading req.user (set by auth middleware) or req.headers.authorization directly
+ */
+const detectAuthRequirement = (routeCallNode) => {
+    const middlewareNames = (routeCallNode.arguments || [])
+        .filter((arg) => arg.type === 'Identifier')
+        .map((arg) => arg.name);
+
+    if (middlewareNames.some((name) => AUTH_MIDDLEWARE_NAME_PATTERN.test(name))) {
+        return true;
+    }
+
+    let usesAuth = false;
+
+    walk(routeCallNode, (node) => {
+        if (usesAuth || node.type !== 'MemberExpression') {
+            return;
+        }
+
+        const prop = node.property?.name || node.property?.value;
+        const obj = node.object;
+
+        if (obj?.type === 'Identifier' && obj.name === 'req' && prop === 'user') {
+            usesAuth = true;
+            return;
+        }
+
+        if (isReqPropNode(obj, ['headers']) && String(prop || '').toLowerCase() === 'authorization') {
+            usesAuth = true;
+        }
+    });
+
+    return usesAuth;
+};
+
 const getMountCall = (node) => {
     if (node.type !== 'CallExpression' || node.callee?.type !== 'MemberExpression') {
         return null;
@@ -309,11 +463,36 @@ const parseExpressAst = (content, options = {}) => {
 
         const leadingComment = getLeadingComment(comments, routeCall.lineNumber);
 
+        // Extract req.body fields from handler for POST/PUT/PATCH methods
+        const reqBodyFields = ['post', 'put', 'patch'].includes(routeCall.method)
+            ? extractReqBodyFields(node)
+            : null;
+
+        // Merge documented (@apilens/@param comment) parameters with ones inferred
+        // from actual req.query/req.headers reads in the handler, de-duplicated by name+in.
+        const inferredParameters = [...extractQueryParameters(node), ...extractHeaderParameters(node)];
+        const documentedParameters = getDocumentedParameters(leadingComment);
+        const seenParamKeys = new Set(documentedParameters.map((p) => `${p.in}:${p.name}`));
+        const mergedParameters = [...documentedParameters];
+        inferredParameters.forEach((p) => {
+            const key = `${p.in}:${p.name}`;
+            if (!seenParamKeys.has(key)) {
+                seenParamKeys.add(key);
+                mergedParameters.push(p);
+            }
+        });
+
         endpoints.push(normalizeEndpoint({
             method: routeCall.method,
             path: joinPaths(baseByRouterName[routeCall.objectName] || basePath, routeCall.path),
-            parameters: getDocumentedParameters(leadingComment),
+            parameters: mergedParameters,
             responses: getDocumentedResponses(leadingComment),
+            requestBody: reqBodyFields,
+            // Always true: reqBodyFields comes from extractReqBodyFields, which
+            // invents example values purely from field-name patterns - it never
+            // reads a real literal value out of the source code.
+            bodyIsSynthetic: true,
+            security: detectAuthRequirement(node),
             sourceFile: options.sourceFile,
             lineNumber: routeCall.lineNumber,
             raw: {
